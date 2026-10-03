@@ -22,11 +22,14 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      - name: Check out repository
+      - name: Check out Lab4
         uses: actions/checkout@v4
 
-      - name: Download submodule source code
-        run: git submodule update --init --recursive
+      - name: Download Lab3 branch
+        run: |
+          git fetch origin Lab3
+          git checkout origin/Lab3 -- Lab3 .gitmodules
+          git submodule update --init --recursive -- Lab3/590MakefileLab
 
       - name: Build Lab3 using Makefile
         run: |
