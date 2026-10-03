@@ -6,7 +6,7 @@ name: CI
 on:
   # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
+    branches: [ "main", "Lab4Task4"]
   pull_request:
     branches: [ "main" ]
 
@@ -25,18 +25,12 @@ jobs:
       - name: Check out Lab4
         uses: actions/checkout@v4
 
-      - name: Download Lab3 branch
+      - name: Build unit tests
         run: |
-          git fetch origin Lab3
-          git checkout origin/Lab3 -- Lab3 .gitmodules
-          git submodule update --init --recursive -- Lab3/590MakefileLab
-
-      - name: Build Lab3 using Makefile
-        run: |
-          cd Lab3
+          cd Lab4
           make
 
-      - name: Run Lab3 program
+      - name: Run all unit tests
         run: |
-          cd Lab3
-          ./fibonacci
+          cd Lab4
+          make test
