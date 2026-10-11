@@ -1,0 +1,32 @@
+name: AFL++ Fuzzing
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install AFL++
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y afl++ clang
+
+      - name: Compile and create seed
+        run: |
+          afl-clang-fast -O0 -g Lab5/dvcp.c -o dvcp
+          mkdir -p seeds
+          printf 'IMG' > seeds/seed
+          
+      - name: Fuzz for three minutes
+        run: |
+          sudo sysctl -w kernel.core_pattern=core
+          AFL_NO_UI=1 AFL_SKIP_CPUFREQ=1 AFL_NO_AFFINITY=1 \
+            afl-fuzz -V 180 -m 100 -t 1000 \
+            -i seeds -o afl-results -- ./dvcp @@
