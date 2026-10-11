@@ -1,0 +1,20 @@
+name: AFL++ Fuzzing
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fuzz for three minutes
+        run: |
+          AFL_NO_UI=1 AFL_SKIP_CPUFREQ=1 AFL_NO_AFFINITY=1 \
+            afl-fuzz -V 180 -m 100 -t 1000 \
+            -i seeds -o afl-results -- ./dvcp @@
