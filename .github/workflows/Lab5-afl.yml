@@ -26,6 +26,7 @@ jobs:
           
       - name: Fuzz for three minutes
         run: |
+          sudo sysctl -w kernel.core_pattern=core
           AFL_NO_UI=1 AFL_SKIP_CPUFREQ=1 AFL_NO_AFFINITY=1 \
             afl-fuzz -V 180 -m 100 -t 1000 \
             -i seeds -o afl-results -- ./dvcp @@
