@@ -33,7 +33,9 @@ jobs:
 
       - name: Build Lab3 using Makefile
         run: |
+          cp Lab4/main.c Lab3/590MakefileLab/main.c
           cd Lab3
+          make clean
           make
 
       - name: Run Lab3 program
