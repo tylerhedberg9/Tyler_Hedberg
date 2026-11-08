@@ -1,0 +1,215 @@
+---
+- name: Install and configure Gitea and its runner
+  hosts: gitea
+  become: true
+
+
+  vars:
+    gitea_version: "1.25.5"
+
+  vars_prompt:
+    - name: runner_token
+      prompt: "Gitea runner registration token"
+      private: true
+
+
+  tasks:
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - git
+          - sqlite3
+          - curl
+          - ca-certificates
+          - build-essential
+          - nodejs
+          - acl
+        state: present
+        update_cache: true
+
+
+    - name: Create Gitea service account
+      ansible.builtin.user:
+        name: git
+        system: true
+        home: /home/git
+        create_home: true
+        shell: /bin/bash
+
+    - name: create Gitea directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: git
+        group: git
+        mode: "0750"
+      loop:
+        - /var/lib/gitea
+        - /var/lib/gitea/custom
+        - /var/lib/gitea/data
+        - /var/lib/gitea/log
+        - /etc/gitea
+
+    - name: Download Gitea ARM64 binary
+      ansible.builtin.get_url:
+        url: "https://dl.gitea.com/gitea/{{ gitea_version }}//gitea-{{ gitea_version }}-linux-arm64"
+        dest: /usr/local/bin/gitea
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Create initieal Gitea configuration
+      ansible.builtin.copy:
+        dest: /etc/gitea/app.ini
+        owner: git
+        group: git
+        mode: "0600"
+        force: false
+        content: |
+          APP_NAME = Lab7 Gitea
+          RUN_USER = git
+          RUN_MODE = prod
+          
+          [database]
+          BD_TYPE = sqlite3
+          PATH = /var/lib/gitea/data/gitea.db
+
+          [repository]
+          ROOT = /var/lib/gitea/data/gitea-repositories
+
+          [SERVER]
+          DOMAIN =  localhost
+          HTTP_ADDR = 127.0.0.1
+          HTTP_PORT = 3000
+          ROOT_URL = http://localhost:3000/
+          APP_DATA_PATH = /var/lib/gitea/data
+          DISABLE_SSH = true
+
+          [actions]
+          ENABLED = true
+
+          [log]
+          MODE = console
+
+    - name: Create Gitea systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/gitea.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Description=Gitea
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=git
+          Group=git
+          WorkingDirectory=/var/lib/gitea
+          Environment=HOME=/home/git
+          Environment=GITEA_WORK_DIR=/var/lib/gitea
+          ExecStart=/usr/local/bin/gitea web --config /etc/gitea/app.ini
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      register: gitea_service
+
+    - name: Enable and Start Gitea
+      ansible.builtin.systemd_service:
+        name: gitea
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if gitea_service.changed else 'started' }}"
+
+    - name: Wait for Gitea web server
+      ansible.builtin.wait_for: 
+        host: 127.0.0.1
+        port: 3000
+        timeout: 60
+ 
+    - name: Create runner account
+      ansible.builtin.user:
+        name: gitea-runner
+        system: true
+        home: /var/lib/gitea-runner
+        create_home: true
+        shell: /bin/bash
+
+    - name: Download runner ARM64 binary
+      ansible.builtin.get_url:
+        url: "https://dl.gitea.com/gitea-runner/5.2.0/gitea-runner-5.2.0-linux-arm64"
+        dest: /usr/local/bin/gitea-runner
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Configure runner for host execution
+      ansible.builtin.copy:
+        dest: /var/lib/gitea-runner/config.yaml
+        owner: gitea-runner
+        group: gitea-runner
+        mode: "0600"
+        content: |
+          runner:
+            file: /var/lib/gitea-runner/.runner
+            capacity: 1
+            labels: 
+              - "debian:host"
+          cache:
+            enabled: false
+      register: runner_config
+
+    - name: Register runner with Gitea
+      become_user: gitea-runner
+      ansible.builtin.command:
+        argv:
+          - /usr/local/bin/gitea-runner
+          - -c
+          - /var/lib/gitea-runner/config.yaml
+          - register
+          - --no-interactive
+          - --instance
+          - http://localhost:3000/
+          - --token
+          - "{{ runner_token }}"
+          - --name
+          - debian-runner
+          - --labels
+          - debian:host
+        chdir: /var/lib/gitea-runner
+        creates: /var/lib/gitea-runner/.runner
+      no_log: true
+
+
+    - name: Create runner service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/gitea-runner.service
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [Unit]
+          Desription=Gitea Actions Runner
+          After=network.target gitea.service
+          Requires=gitea.service
+
+          [Service]
+          User=gitea-runner
+          Group=gitea-runner
+          WorkingDirectory=/var/lib/gitea-runner
+          Environment=HOME=/var/lib/gitea-runner
+          ExecStart=/usr/local/bin/gitea-runner -c /var/lib/gitea-runner/config.yaml daemon
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      register: runner_service
+
+    - name: Enable and Start Runner
+      ansible.builtin.systemd_service:
+        name: gitea-runner
+        daemon_reload: true
+        enabled: true
+        state: "{{ 'restarted' if runner_config.changed or runner_service.changed else 'started' }}"
